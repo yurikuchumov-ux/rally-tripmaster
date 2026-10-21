@@ -117,6 +117,8 @@ th{color:var(--dim);font:600 12px var(--sans);text-transform:uppercase}
   <input id="simSpeed" inputmode="decimal" value="50">
   <p id="planErr" class="note err"></p>
   <div class="row"><button id="saveBtn" class="go">Сохранить</button></div>
+  <div class="row" style="margin-top:28px"><button id="wipeBtn">Новая гонка: сбросить всё</button></div>
+  <p class="note">Стирает график, калибровку, поправку часов и пройденный км. Нажать два раза.</p>
 </section>
 
 <!-- ТАБЛИЦА -->
@@ -360,6 +362,20 @@ $("saveBtn").onclick = () => {
     store.set("plan", state.planText); store.set("clockOfs", state.clockOfs); store.set("k", state.k);
     $("planErr").textContent = ""; show("run");
   }catch(e){ $("planErr").textContent = e.message; }
+};
+let wipeArmed = null;
+$("wipeBtn").onclick = () => {
+  const b = $("wipeBtn"), idle = () => { wipeArmed = null; b.textContent = "Новая гонка: сбросить всё"; b.className = ""; };
+  if(!wipeArmed){ b.textContent = "Стереть всё? Нажмите ещё раз"; b.className = "stop"; wipeArmed = setTimeout(idle, 3000); return; }
+  clearTimeout(wipeArmed); idle();
+  if(state.sim) toggleSim();
+  state.rows = parsePlan(DEMO); state.planText = DEMO;
+  state.k = 1; state.clockOfs = 0; state.raw = 0; state.calRawA = null; state.calKmA = null; state.lastRow = undefined;
+  syncTo(state.rows[0].km);
+  for(const k of ["plan","k","clockOfs","pos"]) try{ localStorage.removeItem("tm_"+k); }catch{}
+  $("plan").value = DEMO; $("kFactor").value = "1.0000"; $("clockOfs").value = "0";
+  $("calA").value = ""; $("calB").value = ""; $("importNote").hidden = true;
+  $("calInfo").textContent = "Сброшено. Введите график новой гонки и проведите калибровку.";
 };
 $("calStart").onclick = () => {
   const a = parseFloat($("calA").value.replace(",", "."));
