@@ -53,12 +53,29 @@ td,th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:right}
 th{color:var(--dim);font:600 12px var(--sans);text-transform:uppercase}
 .status{font-size:13px;color:var(--dim);text-align:center;margin-top:8px}
 .err{color:var(--bad)}
+/* дорожная книга: км | ёлочка | что делать */
+.pt{display:grid;grid-template-columns:76px 84px 1fr;gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 8px;margin-top:6px}
+.pt.cur{border:2px solid var(--accent)}
+.pt.done{opacity:.45}
+.pt .km{font:700 20px var(--mono);font-variant-numeric:tabular-nums}
+.pt .sub{font:12px var(--mono);color:var(--dim);font-variant-numeric:tabular-nums}
+.pt .txt{font-size:15px;line-height:1.3;min-width:0}
+.pt .info{font-size:13px;color:var(--warn);margin-top:2px}
+.pt svg{width:84px;height:84px;display:block}
+.ptNext{display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:center;margin-top:8px;background:var(--panel);border:2px solid var(--accent);border-radius:12px;padding:6px 10px}
+.ptNext svg{width:92px;height:92px;display:block}
+.ptNext .dist{font:700 34px var(--mono);font-variant-numeric:tabular-nums}
+.ptNext .txt{font-size:16px;line-height:1.3}
+.ptNext .info{font-size:14px;color:var(--warn)}
+.legHead{display:flex;flex-wrap:wrap;gap:6px 14px;font:14px var(--mono);color:var(--dim);margin-top:4px}
+.legHead b{color:var(--fg)}
 </style>
 </head>
 <body>
 <nav>
   <button id="tabRun" class="on">Гонка</button>
   <button id="tabSetup">График</button>
+  <button id="tabLegend">Легенда</button>
   <button id="tabTable">Таблица</button>
 </nav>
 
@@ -67,6 +84,10 @@ th{color:var(--dim);font:600 12px var(--sans);text-transform:uppercase}
   <div id="devBox" class="dev">
     <div id="devVal" class="big num">—</div>
     <div id="devHint" class="hint">нажмите «Старт GPS»</div>
+  </div>
+  <div id="ptNext" class="ptNext" hidden>
+    <div id="ptNextSvg"></div>
+    <div><div id="ptNextDist" class="dist">—</div><div id="ptNextTxt" class="txt"></div><div id="ptNextInfo" class="info"></div></div>
   </div>
   <div class="grid">
     <div class="cell"><div class="k">Км легенды</div><div id="kmVal" class="v">0.00</div></div>
@@ -120,7 +141,23 @@ th{color:var(--dim);font:600 12px var(--sans);text-transform:uppercase}
   <div class="row"><button id="testBtn">Тест: старт через 30 с</button></div>
   <p class="note">Для тренировки: ставит в первую строку время «сейчас + 30 с», сохраняет и возвращает на старт участка. Перед гонкой введите настоящее время старта.</p>
   <div class="row" style="margin-top:28px"><button id="wipeBtn">Новая гонка: сбросить всё</button></div>
-  <p class="note">Стирает график, калибровку, поправку часов и пройденный км. Нажать два раза.</p>
+  <p class="note">Стирает график, легенду, калибровку, поправку часов и пройденный км. Нажать два раза.</p>
+</section>
+
+<!-- ЛЕГЕНДА -->
+<section id="legend" hidden>
+  <div id="legHead" class="legHead"></div>
+  <div id="legList"></div>
+  <p id="legEmpty" class="note">Легенда не загружена. Пришлите фото дорожной книги в чат с Claude — придёт ссылка, которая загрузит её сюда. Или введите вручную ниже.</p>
+  <details style="margin-top:14px">
+    <summary class="note">Редактировать легенду вручную</summary>
+    <p class="note">Шапка: <b>@ название | длина | средняя | норма</b>. Пункт: <b>№ км | выезд | дороги | действие | информация</b>. Выезд — угол в градусах: 0 прямо, 90 направо, −90 налево, 45 правее. Дороги — углы других дорог через пробел; метки: kv — КВ, rail — ж/д, ring — кольцо.</p>
+    <textarea id="legText" spellcheck="false" style="min-height:260px"></textarea>
+    <p id="legErr" class="note err"></p>
+    <div class="row"><button id="legSave" class="go">Сохранить легенду</button></div>
+    <label for="legStart">Время старта участка (чч:мм:сс) — график из шапки</label>
+    <div class="row"><input id="legStart" placeholder="10:05:00"><button id="legPlan">Сделать график</button></div>
+  </details>
 </section>
 
 <!-- ТАБЛИЦА -->
@@ -191,6 +228,53 @@ function rowAt(rows, d){
   return idx;
 }
 
+/* ---------- дорожная книга ---------- */
+// «@ КВ0 → КВ1 | 104.55 | 46.47 | 02:15» и «4 2.35 | -90 | 90 | налево | главная дорога»
+function parseLegend(text){
+  const head = {title:"", len:null, avg:null, norm:""}, pts = [];
+  const num = s => parseFloat(String(s).replace(",", "."));
+  text.split("\n").forEach((raw, i) => {
+    const line = raw.trim();
+    if(!line || line.startsWith("#")) return;
+    const f = line.split("|").map(s => s.trim());
+    if(line.startsWith("@")){
+      head.title = f[0].slice(1).trim(); head.len = num(f[1]); head.avg = num(f[2]); head.norm = f[3] || "";
+      return;
+    }
+    const t = f[0].split(/\s+/);
+    const km = num(t[t.length-1]);
+    if(!isFinite(km)) throw new Error(`Строка ${i+1}: нет км`);
+    const p = {n: t.length > 1 ? t[0] : String(pts.length+1), km, exit: isFinite(num(f[1])) ? num(f[1]) : 0,
+               roads: [], kv:false, rail:false, ring:false, act: f[3] || "", info: f[4] || ""};
+    for(const x of (f[2] || "").split(/\s+/).filter(Boolean)){
+      if(x === "kv") p.kv = true; else if(x === "rail") p.rail = true; else if(x === "ring") p.ring = true;
+      else if(isFinite(num(x))) p.roads.push(num(x));
+    }
+    pts.push(p);
+  });
+  pts.sort((a, b) => a.km - b.km);
+  return {head, pts};
+}
+// ёлочка: въезд снизу, выезд под углом exit (0 — прямо, + по часовой), прочие дороги тонкими
+function tulip(p){
+  const cx = 50, cy = 54, L = 36, r = p.ring ? 11 : 0, rad = a => a*Math.PI/180;
+  const at = (a, d) => [cx + d*Math.sin(rad(a)), cy - d*Math.cos(rad(a))];
+  const seg = (a, w, c) => { const [x1,y1] = at(a, r), [x2,y2] = at(a, L);
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" style="stroke:${c};stroke-width:${w};stroke-linecap:round"/>`; };
+  let s = `<svg viewBox="0 0 100 100" aria-hidden="true">`;
+  for(const a of p.roads) s += seg(a, 5, "var(--dim)");
+  s += `<line x1="${cx}" y1="96" x2="${cx}" y2="${cy + r}" style="stroke:var(--fg);stroke-width:9;stroke-linecap:round"/>`;
+  if(p.ring) s += `<circle cx="${cx}" cy="${cy}" r="${r}" style="fill:none;stroke:var(--fg);stroke-width:5"/>`;
+  s += seg(p.exit, 9, "var(--fg)");
+  const [tx,ty] = at(p.exit, L + 9), [bx,by] = at(p.exit, L - 3), px = Math.cos(rad(p.exit))*9, py = Math.sin(rad(p.exit))*9;
+  s += `<polygon points="${tx},${ty} ${bx+px},${by+py} ${bx-px},${by-py}" style="fill:var(--fg)"/>`;
+  if(p.rail) s += `<line x1="30" y1="80" x2="70" y2="80" style="stroke:var(--warn);stroke-width:4"/><line x1="30" y1="87" x2="70" y2="87" style="stroke:var(--warn);stroke-width:4"/>`;
+  if(p.kv) s += `<circle cx="${cx}" cy="${cy}" r="9" style="fill:var(--bad)"/>`;
+  return s + `</svg>`;
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function fmtDist(m){ return m < 0 ? "сейчас" : m < 1000 ? `${Math.round(m/10)*10} м` : `${(m/1000).toFixed(2)} км`; }
+
 /* ---------- состояние ---------- */
 const DEMO = `# пример — замените своим графиком
 0.00 47 10:05:00
@@ -215,6 +299,10 @@ try{ state.rows = parsePlan(state.planText); }catch{ state.rows = parsePlan(DEMO
 const saved = store.get("pos", null);
 if(saved && isFinite(saved.km)){ state.baseKm = saved.km; } else state.baseKm = state.rows[0].km;
 setInterval(() => store.set("pos", {km: legendKm()}), 2000);
+
+state.legText = store.get("legend", "");
+state.leg = null; state.ptIdx = -1;
+try{ if(state.legText) state.leg = parseLegend(state.legText); }catch{}
 
 function legendKm(){ return state.baseKm + state.k * (state.raw - state.rawAtBase) / 1000; }
 function syncTo(km){ state.baseKm = km; state.rawAtBase = state.raw; }
@@ -272,6 +360,7 @@ function render(){
   const ideal = idealAt(rows, km);
   const dev = now - ideal;                           // >0 опаздываем
   const i = rowAt(rows, km);
+  updatePoints(km);
   $("kmVal").textContent = km.toFixed(2);
   $("clockVal").textContent = fmtTime(now);
   $("targetVal").textContent = rows[i].v > 0 ? rows[i].v : "стоп";
@@ -317,14 +406,69 @@ function renderTable(){
   $("tbl").innerHTML = `<tr><th>км</th><th>км/ч</th><th>идеал</th></tr>` + out.join("");
 }
 
+// следующий пункт книги: первый, до которого не доехали (пункт держится ещё 20 м после проезда)
+function nextPoint(km){ return state.leg ? state.leg.pts.findIndex(p => p.km >= km - 0.02) : -1; }
+function updatePoints(km){
+  const box = $("ptNext");
+  if(!state.leg || !state.leg.pts.length){ box.hidden = true; return; }
+  const i = nextPoint(km);
+  if(i < 0){ box.hidden = true; return; }
+  const p = state.leg.pts[i];
+  box.hidden = false;
+  if(i !== state.ptIdx){
+    state.ptIdx = i; state.ptWarned = false;
+    $("ptNextSvg").innerHTML = tulip(p);
+    $("ptNextTxt").textContent = `п.${p.n} · км ${p.km.toFixed(2)} · ${p.act}`;
+    $("ptNextInfo").textContent = p.info;
+    if(!$("legend").hidden) renderLegend();
+  }
+  const m = (p.km - km) * 1000;
+  $("ptNextDist").textContent = m <= 20 ? "сейчас" : fmtDist(m);
+  if(!state.ptWarned && m < 100){ state.ptWarned = true; buzz([80]); }
+}
+function renderLegend(){
+  const L = state.leg;
+  $("legEmpty").hidden = !!(L && L.pts.length);
+  if(!L){ $("legHead").innerHTML = ""; $("legList").innerHTML = ""; return; }
+  const h = L.head;
+  $("legHead").innerHTML = [h.title && `<b>${esc(h.title)}</b>`, isFinite(h.len) && `длина <b>${h.len.toFixed(2)}</b> км`,
+    isFinite(h.avg) && `средняя <b>${h.avg}</b>`, h.norm && `норма <b>${esc(h.norm)}</b>`].filter(Boolean).join("");
+  const km = legendKm(), cur = nextPoint(km);
+  $("legList").innerHTML = L.pts.map((p, i) => {
+    const prev = i ? L.pts[i-1].km : 0, left = isFinite(h.len) ? (h.len - p.km).toFixed(2) : "";
+    return `<div class="pt${i === cur ? " cur" : i < cur || cur < 0 ? " done" : ""}" id="pt${i}">
+      <div><div class="km">${p.km.toFixed(2)}</div><div class="sub">+${(p.km - prev).toFixed(2)}</div><div class="sub">п.${esc(p.n)}${left ? " · ↧" + left : ""}</div></div>
+      ${tulip(p)}
+      <div class="txt">${esc(p.act)}${p.info ? `<div class="info">${esc(p.info)}</div>` : ""}</div></div>`;
+  }).join("");
+  const el = $("pt" + cur); if(el) el.scrollIntoView({block: "center"});
+}
+
 /* ---------- обработчики ---------- */
 function show(tab){
-  for(const t of ["run","setup","table"]){
+  for(const t of ["run","setup","legend","table"]){
     $(t).hidden = t !== tab;
     $("tab"+t[0].toUpperCase()+t.slice(1)).classList.toggle("on", t === tab);
   }
   if(tab === "table") renderTable();
+  if(tab === "legend") renderLegend();
 }
+$("tabLegend").onclick = () => show("legend");
+$("legText").value = state.legText;
+$("legSave").onclick = () => {
+  try{
+    const txt = $("legText").value, L = parseLegend(txt);
+    state.leg = L.pts.length ? L : null; state.legText = txt; state.ptIdx = -1;
+    store.set("legend", txt); $("legErr").textContent = ""; renderLegend();
+  }catch(e){ $("legErr").textContent = e.message; }
+};
+$("legPlan").onclick = () => {
+  const h = state.leg?.head, t = $("legStart").value.trim();
+  if(!h || !isFinite(h.avg) || !isFinite(h.len)){ $("legErr").textContent = "В шапке легенды нет длины и средней скорости"; return; }
+  if(parseTime(t) === null){ $("legErr").textContent = "Время старта в формате чч:мм:сс"; return; }
+  $("plan").value = `0.00 ${h.avg} ${t}   # ${h.title || "старт"}\n${h.len.toFixed(2)} 0   # финиш участка`;
+  $("legErr").textContent = ""; show("setup"); $("saveBtn").click();
+};
 $("tabRun").onclick = () => show("run");
 $("tabSetup").onclick = () => show("setup");
 $("tabTable").onclick = () => show("table");
@@ -391,7 +535,8 @@ $("wipeBtn").onclick = () => {
   state.rows = parsePlan(DEMO); state.planText = DEMO;
   state.k = 1; state.clockOfs = 0; state.raw = 0; state.calRawA = null; state.calKmA = null; state.lastRow = undefined;
   syncTo(state.rows[0].km);
-  for(const k of ["plan","k","clockOfs","pos"]) try{ localStorage.removeItem("tm_"+k); }catch{}
+  for(const k of ["plan","k","clockOfs","pos","legend"]) try{ localStorage.removeItem("tm_"+k); }catch{}
+  state.leg = null; state.legText = ""; state.ptIdx = -1; $("legText").value = "";
   $("plan").value = DEMO; $("kFactor").value = "1.0000"; $("clockOfs").value = "0";
   $("calA").value = ""; $("calB").value = ""; $("importNote").hidden = true;
   $("calInfo").textContent = "Сброшено. Введите график новой гонки и проведите калибровку.";
@@ -413,11 +558,27 @@ $("calEnd").onclick = () => {
 };
 
 // график из разбора легенды приходит ссылкой …/#plan=<текст>; не сохраняем сами — экипаж сверяет
-if(location.hash.startsWith("#plan=")){
-  try{
-    $("plan").value = decodeURIComponent(location.hash.slice(6));
-    $("importNote").hidden = false; show("setup");
-  }catch{}
+// …/#legend=<книга>&plan=<график>: легенду сохраняем сразу (её видно и проверяют во вкладке), график ждёт «Сохранить»
+// #z=<base64url deflate-raw JSON {legend, plan}> — то же, но сжато: длинная легенда влезает в ссылку
+async function unz(b64){
+  const bin = Uint8Array.from(atob(b64.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+  const s = new Blob([bin]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return JSON.parse(await new Response(s).text());
+}
+function applyImport(parts){
+  if(parts.legend){ $("legText").value = parts.legend; $("legSave").click(); }
+  if(parts.plan){ $("plan").value = parts.plan; $("importNote").hidden = false; show("setup"); }
+  else if(parts.legend) show("legend");
+}
+if(location.hash.startsWith("#z=")){
+  unz(location.hash.slice(3)).then(applyImport).catch(() => { $("legErr").textContent = "Ссылка повреждена — попросите прислать её ещё раз"; show("legend"); });
+  history.replaceState(null, "", location.pathname);
+}
+if(/^#(plan|legend)=/.test(location.hash)){
+  const parts = Object.fromEntries(location.hash.slice(1).split("&").map(kv => {
+    const j = kv.indexOf("="); try{ return [kv.slice(0, j), decodeURIComponent(kv.slice(j+1))]; }catch{ return [kv, ""]; }
+  }));
+  applyImport(parts);
   history.replaceState(null, "", location.pathname);
 }
 
