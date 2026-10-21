@@ -86,6 +86,9 @@ th{color:var(--dim);font:600 12px var(--sans);text-transform:uppercase}
     <button id="gpsBtn" class="go">Старт GPS</button>
     <button id="simBtn">Симуляция</button>
   </div>
+  <div class="row">
+    <button id="resetBtn">Сброс: на старт участка</button>
+  </div>
   <div id="status" class="status">GPS выключен</div>
 </section>
 
@@ -202,7 +205,10 @@ const state = {
   last: null, speed: null, watchId: null, sim: null, wake: null
 };
 try{ state.rows = parsePlan(state.planText); }catch{ state.rows = parsePlan(DEMO); }
-state.baseKm = state.rows[0].km;
+// пройденное восстанавливаем после случайного закрытия; GPS за время простоя не учтён — поправьте «Синхр.»
+const saved = store.get("pos", null);
+if(saved && isFinite(saved.km)){ state.baseKm = saved.km; } else state.baseKm = state.rows[0].km;
+setInterval(() => store.set("pos", {km: legendKm()}), 2000);
 
 function legendKm(){ return state.baseKm + state.k * (state.raw - state.rawAtBase) / 1000; }
 function syncTo(km){ state.baseKm = km; state.rawAtBase = state.raw; }
@@ -321,6 +327,19 @@ $("syncBtn").onclick = () => {
 };
 $("gpsBtn").onclick = () => state.watchId === null ? startGps() : stopGps();
 $("simBtn").onclick = toggleSim;
+// двойное нажатие вместо confirm(): случайный тык в машине не обнулит участок
+let resetArmed = null;
+$("resetBtn").onclick = () => {
+  const b = $("resetBtn");
+  if(!resetArmed){
+    b.textContent = "Точно? Нажмите ещё раз"; b.className = "stop";
+    resetArmed = setTimeout(() => { resetArmed = null; b.textContent = "Сброс: на старт участка"; b.className = ""; }, 3000);
+    return;
+  }
+  clearTimeout(resetArmed); resetArmed = null;
+  b.textContent = "Сброс: на старт участка"; b.className = "";
+  syncTo(state.rows[0].km); state.lastRow = undefined; store.set("pos", {km: legendKm()});
+};
 
 $("plan").value = state.planText;
 $("clockOfs").value = state.clockOfs;
