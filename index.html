@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d1117">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<title>Трипмастер Р3К</title>
+<style>
+/* Тёмный экран для машины: крупные цифры, минимум отвлечений. */
+:root{
+  --bg:#0d1117; --panel:#161b22; --line:#2a313c; --fg:#e8edf2; --dim:#8b96a3;
+  --ok:#3fb950; --warn:#e3b341; --bad:#f85149; --accent:#58a6ff;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+body{padding:env(safe-area-inset-top,0) max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0) max(12px,env(safe-area-inset-left,0px))}
+nav{display:flex;gap:6px;padding-block:10px}
+nav button{flex:1}
+button{font:600 15px var(--sans);color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 8px;cursor:pointer}
+button:active{background:var(--line)}
+button.on{border-color:var(--accent);color:var(--accent)}
+button.go{background:var(--ok);color:#04130a;border-color:var(--ok)}
+button.stop{background:var(--bad);color:#1a0505;border-color:var(--bad)}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[hidden]{display:none!important}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.dev{text-align:center;padding:14px 0 6px;border-radius:14px;background:var(--panel);border:2px solid var(--line)}
+.dev .big{font:700 clamp(64px,24vw,140px)/1 var(--mono)}
+.dev .hint{font:600 18px var(--sans);margin-top:4px}
+.dev.ok{border-color:var(--ok)} .dev.ok .big{color:var(--ok)}
+.dev.warn{border-color:var(--warn)} .dev.warn .big{color:var(--warn)}
+.dev.bad{border-color:var(--bad)} .dev.bad .big{color:var(--bad)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.cell{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 10px}
+.cell .k{font-size:12px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.cell .v{font:700 30px var(--mono);font-variant-numeric:tabular-nums}
+.cell.wide{grid-column:1/-1}
+.row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.row>*{flex:1;min-width:0}
+input,textarea{width:100%;font:16px var(--mono);color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
+textarea{min-height:200px}
+label{display:block;font-size:13px;color:var(--dim);margin:12px 0 4px}
+p.note{color:var(--dim);font-size:13px;line-height:1.45;margin:6px 0}
+table{width:100%;border-collapse:collapse;font:15px var(--mono);font-variant-numeric:tabular-nums}
+td,th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:right}
+th{color:var(--dim);font:600 12px var(--sans);text-transform:uppercase}
+.status{font-size:13px;color:var(--dim);text-align:center;margin-top:8px}
+.err{color:var(--bad)}
+</style>
+</head>
+<body>
+<nav>
+  <button id="tabRun" class="on">Гонка</button>
+  <button id="tabSetup">График</button>
+  <button id="tabTable">Таблица</button>
+</nav>
+
+<!-- ГОНКА -->
+<section id="run">
+  <div id="devBox" class="dev">
+    <div id="devVal" class="big num">—</div>
+    <div id="devHint" class="hint">нажмите «Старт GPS»</div>
+  </div>
+  <div class="grid">
+    <div class="cell"><div class="k">Км легенды</div><div id="kmVal" class="v">0.00</div></div>
+    <div class="cell"><div class="k">Время</div><div id="clockVal" class="v">--:--:--</div></div>
+    <div class="cell"><div class="k">Задано км/ч</div><div id="targetVal" class="v">—</div></div>
+    <div class="cell"><div class="k">Факт км/ч</div><div id="speedVal" class="v">—</div></div>
+    <div class="cell wide"><div class="k">Следующее</div><div id="nextVal" class="v" style="font-size:20px">—</div></div>
+  </div>
+  <div class="row">
+    <button id="m100">−100 м</button><button id="m10">−10 м</button>
+    <button id="p10">+10 м</button><button id="p100">+100 м</button>
+  </div>
+  <div class="row">
+    <input id="syncKm" inputmode="decimal" placeholder="я на км…">
+    <button id="syncBtn">Синхр.</button>
+  </div>
+  <div class="row">
+    <button id="gpsBtn" class="go">Старт GPS</button>
+    <button id="simBtn">Симуляция</button>
+  </div>
+  <div id="status" class="status">GPS выключен</div>
+</section>
+
+<!-- НАСТРОЙКА -->
+<section id="setup" hidden>
+  <label for="plan">График: одна строка — <b>км скорость [время]</b></label>
+  <textarea id="plan" spellcheck="false"></textarea>
+  <p class="note">С этого км легенды едем с этой средней скоростью. Время (чч:мм:сс) — жёсткая привязка: на этом км вы должны быть ровно в это время (старт участка, рестарт после КВ). В первой строке время обязательно. Скорость 0 — стоянка до следующей строки со временем.</p>
+  <label for="clockOfs">Поправка часов, с (официальное время − время телефона)</label>
+  <input id="clockOfs" inputmode="decimal" value="0">
+  <label for="kFactor">Коэффициент дистанции (км легенды / км GPS)</label>
+  <input id="kFactor" inputmode="decimal" value="1.0000">
+  <label>Калибровка на мерном участке</label>
+  <div class="row">
+    <input id="calA" inputmode="decimal" placeholder="км А">
+    <button id="calStart">Я в точке А</button>
+  </div>
+  <div class="row">
+    <input id="calB" inputmode="decimal" placeholder="км Б">
+    <button id="calEnd">Я в точке Б</button>
+  </div>
+  <p id="calInfo" class="note">Проехав мерный участок, коэффициент пересчитается сам. Сравнить с показаниями организатора можно и на любом длинном прямом отрезке легенды.</p>
+  <label for="simSpeed">Скорость симуляции, км/ч</label>
+  <input id="simSpeed" inputmode="decimal" value="50">
+  <p id="planErr" class="note err"></p>
+  <div class="row"><button id="saveBtn" class="go">Сохранить</button></div>
+</section>
+
+<!-- ТАБЛИЦА -->
+<section id="table" hidden>
+  <p class="note">Идеальное время прохождения каждой точки графика и каждого целого км. Пригодится, если GPS откажет: сверяйтесь с одометром.</p>
+  <div style="overflow-x:auto"><table id="tbl"></table></div>
+</section>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem("tm_"+k); return v===null ? d : JSON.parse(v); }catch{ return d; } },
+  set(k, v){ try{ localStorage.setItem("tm_"+k, JSON.stringify(v)); }catch{} }
+};
+
+/* ---------- время ---------- */
+function parseTime(s){
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?$/.exec(s.trim());
+  if(!m) return null;
+  return (+m[1])*3600 + (+m[2])*60 + (m[3] ? +m[3] : 0);
+}
+function fmtTime(sec){
+  sec = ((sec % 86400) + 86400) % 86400;
+  const h = Math.floor(sec/3600), m = Math.floor(sec%3600/60), s = Math.floor(sec%60);
+  return [h,m,s].map(x => String(x).padStart(2,"0")).join(":");
+}
+function nowSec(){ // секунды от полуночи по официальным часам
+  const d = new Date();
+  return d.getHours()*3600 + d.getMinutes()*60 + d.getSeconds() + d.getMilliseconds()/1000 + state.clockOfs;
+}
+
+/* ---------- график ---------- */
+// rows: [{km, v, t|null}] по возрастанию km
+function parsePlan(text){
+  const rows = [];
+  const lines = text.split(/\n/).map(l => l.replace(/#.*/, "").trim()).filter(Boolean);
+  for(const [i, line] of lines.entries()){
+    const p = line.replace(/,/g, ".").split(/\s+/);
+    const km = parseFloat(p[0]), v = parseFloat(p[1]);
+    if(!isFinite(km) || !isFinite(v) || v < 0) throw new Error(`Строка ${i+1}: нужно «км скорость [время]»`);
+    let t = null;
+    if(p[2]){ t = parseTime(p[2]); if(t===null) throw new Error(`Строка ${i+1}: время в формате чч:мм:сс`); }
+    if(rows.length && km < rows[rows.length-1].km) throw new Error(`Строка ${i+1}: км меньше предыдущего`);
+    rows.push({km, v, t});
+  }
+  if(!rows.length) throw new Error("График пуст");
+  if(rows[0].t === null) throw new Error("В первой строке нужно время старта");
+  return rows;
+}
+// идеальное время (с от полуночи) на км d
+function idealAt(rows, d){
+  let t = rows[0].t;
+  for(let i = 0; i < rows.length; i++){
+    const r = rows[i];
+    if(r.t !== null) t = r.t;
+    if(d <= r.km) return t;
+    const end = i+1 < rows.length ? rows[i+1].km : Infinity;
+    const seg = Math.min(d, end) - r.km;
+    if(r.v > 0) t += seg / r.v * 3600;
+    if(d <= end) return t;
+  }
+  return t;
+}
+function rowAt(rows, d){
+  let idx = 0;
+  for(let i = 0; i < rows.length; i++) if(d >= rows[i].km) idx = i;
+  return idx;
+}
+
+/* ---------- состояние ---------- */
+const DEMO = `# пример — замените своим графиком
+0.00 47 10:05:00
+3.20 36
+7.85 52
+12.40 0
+12.40 45 10:22:00
+20.10 40`;
+const state = {
+  planText: store.get("plan", DEMO),
+  rows: null,
+  clockOfs: store.get("clockOfs", 0),
+  k: store.get("k", 1),
+  raw: 0,          // сырые метры GPS с начала
+  baseKm: 0,       // км легенды в точке синхронизации
+  rawAtBase: 0,    // сырые метры в точке синхронизации
+  calRawA: null, calKmA: null,
+  last: null, speed: null, watchId: null, sim: null, wake: null
+};
+try{ state.rows = parsePlan(state.planText); }catch{ state.rows = parsePlan(DEMO); }
+state.baseKm = state.rows[0].km;
+
+function legendKm(){ return state.baseKm + state.k * (state.raw - state.rawAtBase) / 1000; }
+function syncTo(km){ state.baseKm = km; state.rawAtBase = state.raw; }
+
+/* ---------- GPS ---------- */
+function haversine(a, b){
+  const R = 6371000, toR = Math.PI/180;
+  const dLat = (b.lat-a.lat)*toR, dLon = (b.lon-a.lon)*toR;
+  const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*toR)*Math.cos(b.lat*toR)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+function onPos(pos){
+  const c = pos.coords;
+  const p = {lat:c.latitude, lon:c.longitude, acc:c.accuracy};
+  if(c.speed !== null && c.speed >= 0) state.speed = c.speed*3.6;
+  $("status").textContent = `GPS ±${Math.round(c.accuracy)} м`;
+  if(c.accuracy > 35) return;                       // мусорная точка
+  if(!state.last){ state.last = p; return; }
+  const d = haversine(state.last, p);
+  if(d >= Math.max(3, c.accuracy/2)){                // отсекаем дрожание на месте
+    state.raw += d; state.last = p;
+  }
+}
+function onPosErr(e){ $("status").innerHTML = `<span class="err">GPS: ${e.message}</span>`; }
+async function startGps(){
+  if(!navigator.geolocation){ onPosErr({message:"недоступен в этом браузере"}); return; }
+  state.watchId = navigator.geolocation.watchPosition(onPos, onPosErr, {enableHighAccuracy:true, maximumAge:0, timeout:15000});
+  $("gpsBtn").textContent = "Стоп GPS"; $("gpsBtn").className = "stop";
+  try{ state.wake = await navigator.wakeLock.request("screen"); }catch{}
+}
+function stopGps(){
+  if(state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
+  state.watchId = null; state.last = null;
+  $("gpsBtn").textContent = "Старт GPS"; $("gpsBtn").className = "go";
+  $("status").textContent = "GPS выключен";
+}
+document.addEventListener("visibilitychange", async () => {
+  if(document.visibilityState === "visible" && state.watchId !== null){
+    try{ state.wake = await navigator.wakeLock.request("screen"); }catch{}
+  }
+});
+
+/* ---------- симуляция для проверки дома ---------- */
+function toggleSim(){
+  if(state.sim){ clearInterval(state.sim); state.sim = null; $("simBtn").classList.remove("on"); return; }
+  const v = parseFloat($("simSpeed").value) || 50;
+  state.sim = setInterval(() => { state.raw += v/3.6/5; state.speed = v; }, 200);
+  $("simBtn").classList.add("on");
+}
+
+/* ---------- экран ---------- */
+function render(){
+  const km = legendKm(), now = nowSec();
+  const rows = state.rows;
+  const ideal = idealAt(rows, km);
+  const dev = now - ideal;                           // >0 опаздываем
+  const i = rowAt(rows, km);
+  $("kmVal").textContent = km.toFixed(2);
+  $("clockVal").textContent = fmtTime(now);
+  $("targetVal").textContent = rows[i].v > 0 ? rows[i].v : "стоп";
+  $("speedVal").textContent = state.speed === null ? "—" : Math.round(state.speed);
+
+  const box = $("devBox"), a = Math.abs(dev);
+  // стоим у точки с жёстким временем (старт, рестарт после КВ) — показываем отсчёт
+  const hold = rows.find(r => r.t !== null && Math.abs(km - r.km) < 0.03 && now < r.t);
+  if(hold){
+    $("devVal").textContent = fmtTime(hold.t - now).slice(3);
+    $("devHint").textContent = hold === rows[0] ? "до старта" : "до рестарта";
+    box.className = "dev";
+  }else{
+    $("devVal").textContent = (dev > 0 ? "+" : dev < 0 ? "−" : "") + a.toFixed(a < 10 ? 1 : 0);
+    $("devHint").textContent = a < 1 ? "в графике" : dev > 0 ? "опаздываем — быстрее" : "раньше графика — медленнее";
+    box.className = "dev " + (a < 1 ? "ok" : a < 5 ? "warn" : "bad");
+  }
+  const n = rows[i+1];
+  // вибро: за 100 м до смены режима и в момент смены
+  if(i !== state.lastRow){ if(state.lastRow !== undefined) buzz([120,60,120]); state.lastRow = i; state.warned = false; }
+  if(n && !state.warned && (n.km - km) < 0.1){ buzz([250]); state.warned = true; }
+  if(n){
+    const left = Math.max(0, n.km - km)*1000;
+    $("nextVal").textContent = `км ${n.km.toFixed(2)} (${Math.round(left)} м) → ${n.v > 0 ? n.v+" км/ч" : "стоп"}${n.t!==null ? " в "+fmtTime(n.t) : ""}`;
+  }else $("nextVal").textContent = "последний отрезок";
+  requestAnimationFrame(render);
+}
+
+function renderTable(){
+  const rows = state.rows, out = [];
+  const pts = new Set(rows.map(r => r.km));
+  const last = rows[rows.length-1].km;
+  for(let k = Math.ceil(rows[0].km); k <= last; k++) pts.add(k);
+  [...pts].sort((a,b) => a-b).forEach(k => {
+    const r = rows.find(x => x.km === k);
+    out.push(`<tr${r ? ' style="color:var(--accent)"' : ""}><td>${k.toFixed(2)}</td><td>${r ? (r.v || "стоп") : ""}</td><td>${fmtTime(idealAt(rows, k))}</td></tr>`);
+  });
+  $("tbl").innerHTML = `<tr><th>км</th><th>км/ч</th><th>идеал</th></tr>` + out.join("");
+}
+
+/* ---------- обработчики ---------- */
+function show(tab){
+  for(const t of ["run","setup","table"]){
+    $(t).hidden = t !== tab;
+    $("tab"+t[0].toUpperCase()+t.slice(1)).classList.toggle("on", t === tab);
+  }
+  if(tab === "table") renderTable();
+}
+$("tabRun").onclick = () => show("run");
+$("tabSetup").onclick = () => show("setup");
+$("tabTable").onclick = () => show("table");
+
+const nudge = m => () => { state.baseKm += m/1000; };
+$("m100").onclick = nudge(-100); $("m10").onclick = nudge(-10);
+$("p10").onclick = nudge(10);    $("p100").onclick = nudge(100);
+$("syncBtn").onclick = () => {
+  const v = parseFloat($("syncKm").value.replace(",", "."));
+  if(isFinite(v)){ syncTo(v); $("syncKm").value = ""; }
+};
+$("gpsBtn").onclick = () => state.watchId === null ? startGps() : stopGps();
+$("simBtn").onclick = toggleSim;
+
+$("plan").value = state.planText;
+$("clockOfs").value = state.clockOfs;
+$("kFactor").value = state.k.toFixed(4);
+$("saveBtn").onclick = () => {
+  try{
+    const rows = parsePlan($("plan").value);
+    const fresh = state.rows[0].km !== rows[0].km;
+    state.rows = rows; state.planText = $("plan").value;
+    state.clockOfs = parseFloat($("clockOfs").value.replace(",", ".")) || 0;
+    const k = parseFloat($("kFactor").value.replace(",", "."));
+    if(isFinite(k) && k > 0.5 && k < 1.5){
+      const km = legendKm(); state.k = k; syncTo(km);   // смена k не прыгает текущий км
+    }
+    if(fresh) syncTo(rows[0].km);
+    store.set("plan", state.planText); store.set("clockOfs", state.clockOfs); store.set("k", state.k);
+    $("planErr").textContent = ""; show("run");
+  }catch(e){ $("planErr").textContent = e.message; }
+};
+$("calStart").onclick = () => {
+  const a = parseFloat($("calA").value.replace(",", "."));
+  if(!isFinite(a)){ $("calInfo").textContent = "Введите км точки А"; return; }
+  state.calRawA = state.raw; state.calKmA = a; syncTo(a);
+  $("calInfo").textContent = `Точка А = км ${a.toFixed(2)} зафиксирована. Едем до Б.`;
+};
+$("calEnd").onclick = () => {
+  const b = parseFloat($("calB").value.replace(",", "."));
+  if(state.calRawA === null || !isFinite(b)){ $("calInfo").textContent = "Сначала точка А, потом введите км Б"; return; }
+  const raw = state.raw - state.calRawA;
+  if(raw < 100){ $("calInfo").textContent = "Проехали меньше 100 м — слишком мало для калибровки"; return; }
+  state.k = (b - state.calKmA) * 1000 / raw; syncTo(b);
+  $("kFactor").value = state.k.toFixed(4); store.set("k", state.k);
+  $("calInfo").textContent = `Готово: GPS ${(raw/1000).toFixed(3)} км, легенда ${(b-state.calKmA).toFixed(3)} км, k = ${state.k.toFixed(4)}`;
+};
+
+function buzz(p){ try{ navigator.vibrate && navigator.vibrate(p); }catch{} }
+if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+
+render();
+</script>
+</body>
+</html>
