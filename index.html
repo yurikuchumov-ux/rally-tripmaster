@@ -117,6 +117,8 @@ th{color:var(--dim);font:600 12px var(--sans);text-transform:uppercase}
   <input id="simSpeed" inputmode="decimal" value="50">
   <p id="planErr" class="note err"></p>
   <div class="row"><button id="saveBtn" class="go">Сохранить</button></div>
+  <div class="row"><button id="testBtn">Тест: старт через 30 с</button></div>
+  <p class="note">Для тренировки: ставит в первую строку время «сейчас + 30 с», сохраняет и возвращает на старт участка. Перед гонкой введите настоящее время старта.</p>
   <div class="row" style="margin-top:28px"><button id="wipeBtn">Новая гонка: сбросить всё</button></div>
   <p class="note">Стирает график, калибровку, поправку часов и пройденный км. Нажать два раза.</p>
 </section>
@@ -282,6 +284,11 @@ function render(){
     $("devVal").textContent = fmtTime(hold.t - now).slice(3);
     $("devHint").textContent = hold === rows[0] ? "до старта" : "до рестарта";
     box.className = "dev";
+  }else if(state.watchId === null && !state.sim){
+    // без GPS км стоит на месте, а часы идут — отклонение росло бы впустую
+    $("devVal").textContent = "—";
+    $("devHint").textContent = "GPS выключен — нажмите «Старт GPS»";
+    box.className = "dev";
   }else{
     $("devVal").textContent = (dev > 0 ? "+" : dev < 0 ? "−" : "") + a.toFixed(a < 10 ? 1 : 0);
     $("devHint").textContent = a < 1 ? "в графике" : dev > 0 ? "опаздываем — быстрее" : "раньше графика — медленнее";
@@ -362,6 +369,18 @@ $("saveBtn").onclick = () => {
     store.set("plan", state.planText); store.set("clockOfs", state.clockOfs); store.set("k", state.k);
     $("planErr").textContent = ""; show("run");
   }catch(e){ $("planErr").textContent = e.message; }
+};
+$("testBtn").onclick = () => {
+  const t = fmtTime(Math.ceil(nowSec() + 30));
+  const lines = $("plan").value.split("\n");
+  const i = lines.findIndex(l => l.replace(/#.*/, "").trim());
+  if(i < 0) return;
+  const [main, ...comment] = lines[i].split("#");
+  const p = main.trim().split(/\s+/);
+  lines[i] = `${p[0]} ${p[1] ?? 0} ${t}` + (comment.length ? "   #" + comment.join("#") : "");
+  $("plan").value = lines.join("\n");
+  $("saveBtn").click();
+  if(!$("planErr").textContent){ syncTo(state.rows[0].km); state.lastRow = undefined; }
 };
 let wipeArmed = null;
 $("wipeBtn").onclick = () => {
