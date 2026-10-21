@@ -1,0 +1,185 @@
+<title>Разбор легенды</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Тот же тёмный «приборный» вид, что у трипмастера: одна колонка, крупные кнопки под палец. */
+:root{
+  --bg:#0d1117; --panel:#161b22; --line:#2a313c; --fg:#e8edf2; --dim:#8b96a3;
+  --ok:#3fb950; --warn:#e3b341; --bad:#f85149; --accent:#58a6ff;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.45 var(--sans);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px 32px}
+main{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+h1{font:700 22px var(--sans);margin:4px 0 0;text-wrap:balance}
+p{margin:0}
+.dim{color:var(--dim);font-size:13px}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.step h2{font:600 13px var(--sans);text-transform:uppercase;letter-spacing:.07em;color:var(--dim);margin:0}
+label{font-size:13px;color:var(--dim)}
+input[type=text],textarea{width:100%;font:16px var(--mono);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px}
+textarea{min-height:220px;font-variant-numeric:tabular-nums}
+button,.btn{display:block;width:100%;text-align:center;text-decoration:none;font:600 16px var(--sans);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px 10px;cursor:pointer}
+button.go,.btn.go{background:var(--ok);border-color:var(--ok);color:#04130a}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,.btn:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1;min-width:0}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px}
+.thumbs img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.warns{margin:0;padding-left:18px;color:var(--warn);font-size:14px}
+.err{color:var(--bad);font-size:14px}
+.status{font-family:var(--mono);font-size:13px;color:var(--dim);white-space:pre-wrap;max-height:120px;overflow:auto}
+</style>
+
+<main>
+  <h1>Разбор легенды</h1>
+  <p class="dim">Сфотографируйте страницы легенды. Claude выпишет график средних скоростей, вы проверите его и откроете в трипмастере.</p>
+
+  <section class="step">
+    <h2>1. Фото легенды</h2>
+    <p class="dim">Снимайте ровно, при хорошем свете. Плотную страницу А4 лучше снять двумя половинами: мелкие цифры при сжатии фото теряются.</p>
+    <input id="photos" type="file" accept="image/*" multiple hidden>
+    <div class="row">
+      <button id="pickBtn" type="button">Добавить фото</button>
+      <button id="clearBtn" type="button" hidden>Убрать все</button>
+    </div>
+    <div id="thumbs" class="thumbs"></div>
+  </section>
+
+  <section class="step">
+    <h2>2. Что известно кроме легенды</h2>
+    <label for="startTime">Время старта первого участка (из карты контроля), чч:мм:сс</label>
+    <input id="startTime" type="text" inputmode="numeric" placeholder="10:05:00">
+    <label for="hints">Подсказки для разбора, если есть</label>
+    <input id="hints" type="text" placeholder="например: только РУ-2; км считаем от старта РУ">
+    <button id="parseBtn" class="go" type="button" disabled>Разобрать</button>
+    <p id="status" class="status" hidden></p>
+    <p id="err" class="err" hidden></p>
+  </section>
+
+  <section id="result" class="step" hidden>
+    <h2>3. Проверьте график</h2>
+    <ul id="warns" class="warns"></ul>
+    <label for="plan">Строка = км, средняя скорость, время (если жёсткое). Можно править.</label>
+    <textarea id="plan" spellcheck="false"></textarea>
+    <a id="openTm" class="btn go" href="#" target="_blank" rel="noopener">Открыть в трипмастере</a>
+    <button id="copyBtn" type="button">Скопировать текст</button>
+    <p class="dim">Трипмастер откроет вкладку «График» с этим текстом. Проверьте и нажмите «Сохранить».</p>
+  </section>
+
+  <p id="noClaude" class="err" hidden>Разбор недоступен в этом окне. Откройте страницу на claude.ai под своим аккаунтом.</p>
+</main>
+
+<script>
+"use strict";
+const TM = "https://yurikuchumov-ux.github.io/rally-tripmaster/";
+const $ = id => document.getElementById(id);
+let files = [], maxCount = 5, sample = null, ctl = null;
+
+const PROMPT = (start, hints) => `Ты штурман ралли на регулярность (Р3К). На фото — страницы легенды, которую выдал организатор.
+Задача: выписать ГРАФИК ДВИЖЕНИЯ для трипмастера — только точки, где меняется заданная средняя скорость, начинается или заканчивается участок регулярности, есть нейтрализация или жёстко задано время.
+
+Формат строки графика: км легенды, средняя скорость (км/ч) с этого км до следующей строки, время чч:мм:сс если на этом км экипаж должен быть ровно в это время.
+- Км — нарастающим итогом, как в легенде (с двумя знаками после точки).
+- Скорость 0 — стоянка/нейтрализация до следующей строки с временем.
+- Первая строка обязана иметь время. ${start ? "Время старта первого участка: " + start + "." : "Если время старта в легенде не указано, поставь в первой строке null и напиши об этом в warnings."}
+- Если время рестарта задано смещением («старт через 5 мин после КВ»), посчитай его, если хватает данных, иначе null и предупреждение.
+- Если в легенде км обнуляется на каждом участке, сохрани км легенды как есть, но предупреди.
+- Схемы поворотов, указатели, ориентиры НЕ нужны — только график скоростей.
+- Ничего не придумывай: неразборчивое или неоднозначное — в warnings с номером строки легенды.
+${hints ? "Подсказка экипажа: " + hints : ""}
+
+Ответь ТОЛЬКО JSON:
+{"rows":[{"km":0.00,"speed":47,"time":"10:05:00","src":"п.1, старт РУ-1"}],"warnings":["..."]}
+time — строка "чч:мм:сс" или null; src — коротко, откуда взято (номер пункта/страница).`;
+
+function planText(rows){
+  return rows.map(r => {
+    const km = Number(r.km), v = Number(r.speed);
+    if(!isFinite(km) || !isFinite(v)) return null;
+    const t = typeof r.time === "string" && /^\d{1,2}:\d{2}(:\d{2})?$/.test(r.time.trim()) ? " " + r.time.trim() : "";
+    const note = r.src ? "   # " + String(r.src).replace(/\n/g, " ").slice(0, 60) : "";
+    return `${km.toFixed(2)} ${v}${t}${note}`;
+  }).filter(Boolean).join("\n");
+}
+function updateLink(){
+  // строки-комментарии трипмастер отбросит сам; передаём как есть
+  $("openTm").href = TM + "#plan=" + encodeURIComponent($("plan").value);
+}
+function renderThumbs(){
+  $("thumbs").replaceChildren(...files.map(f => {
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(f); img.alt = f.name;
+    return img;
+  }));
+  $("clearBtn").hidden = !files.length;
+  $("parseBtn").disabled = !files.length || !sample;
+  $("pickBtn").textContent = files.length ? `Добавить ещё (${files.length} из ${maxCount})` : "Добавить фото";
+}
+function say(el, text){ $(el).hidden = !text; $(el).textContent = text || ""; }
+
+const ERR = {
+  not_granted: "Доступ к Claude не разрешён для этой страницы.",
+  sampling_disabled: "Claude недоступен для этого аккаунта.",
+  rate_limited: "Слишком много запросов или исчерпан лимит. Подождите минуту и нажмите ещё раз.",
+  session_expired: "Войдите в claude.ai заново.",
+  image_rejected: "Одно из фото не подошло: слишком большое или не тот формат. Переснимите.",
+  images_unavailable: "Эта страница сейчас не может отправлять фото.",
+  invalid_json: "Ответ не разобрался. Нажмите «Разобрать» ещё раз.",
+  refused: "Claude отказался разбирать эти фото. Проверьте, что на них легенда.",
+  upstream_error: "Сбой связи. Нажмите «Разобрать» ещё раз."
+};
+
+$("pickBtn").onclick = () => $("photos").click();
+$("photos").onchange = e => {
+  files = files.concat([...e.target.files]).slice(0, maxCount);
+  e.target.value = ""; renderThumbs();
+};
+$("clearBtn").onclick = () => { files = []; renderThumbs(); };
+$("plan").addEventListener("input", updateLink);
+$("copyBtn").onclick = async () => {
+  try{ await navigator.clipboard.writeText($("plan").value); $("copyBtn").textContent = "Скопировано"; }
+  catch{ $("plan").select(); $("copyBtn").textContent = "Выделено — скопируйте вручную"; }
+  setTimeout(() => $("copyBtn").textContent = "Скопировать текст", 2500);
+};
+
+$("parseBtn").onclick = async () => {
+  if(ctl){ ctl.abort(); return; }
+  ctl = new AbortController();
+  say("err", ""); say("status", "Claude читает легенду… обычно 20–90 секунд");
+  $("parseBtn").textContent = "Остановить"; $("parseBtn").className = "";
+  try{
+    const res = await sample.json(PROMPT($("startTime").value.trim(), $("hints").value.trim()), {
+      images: files, modelTier: "complex", signal: ctl.signal,
+      onText: ({text}) => say("status", "Claude пишет график…\n" + text.slice(-300))
+    });
+    const rows = Array.isArray(res?.rows) ? res.rows : [];
+    if(!rows.length) throw {code:"empty", message:""};
+    $("plan").value = planText(rows);
+    if(!/\d:\d\d/.test($("plan").value.split("\n")[0] || "")){
+      (res.warnings ||= []).unshift("В первой строке нет времени старта — допишите его, иначе трипмастер не примет график.");
+    }
+    $("warns").replaceChildren(...(res.warnings || []).map(w => Object.assign(document.createElement("li"), {textContent: String(w)})));
+    updateLink(); $("result").hidden = false; say("status", "");
+    $("result").scrollIntoView({behavior: "smooth"});
+  }catch(e){
+    say("status", "");
+    if(e.code === "empty") say("err", "В легенде не нашлось графика скоростей. Добавьте подсказку или другие страницы.");
+    else if(e.code !== "cancelled") say("err", ERR[e.code] || ERR.upstream_error);
+  }finally{
+    ctl = null; $("parseBtn").textContent = "Разобрать"; $("parseBtn").className = "go";
+  }
+};
+
+(async () => {
+  sample = await window.claude?.use("sample");
+  if(!sample){ $("noClaude").hidden = false; $("parseBtn").disabled = true; return; }
+  const lim = await sample.limits().catch(() => null);
+  if(!lim?.images){ say("err", "Отправка фото здесь недоступна. Откройте страницу на claude.ai."); sample = null; }
+  else{ maxCount = lim.images.maxCount; $("photos").accept = lim.images.mediaTypes.join(","); }
+  renderThumbs();
+})();
+</script>

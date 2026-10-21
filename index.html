@@ -24,6 +24,7 @@ nav{display:flex;gap:6px;padding-block:10px}
 nav button{flex:1}
 button{font:600 15px var(--sans);color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 8px;cursor:pointer}
 button:active{background:var(--line)}
+a.btn{display:block;text-align:center;text-decoration:none;font:600 15px var(--sans);color:var(--accent);background:var(--panel);border:1px solid var(--accent);border-radius:10px;padding:14px 8px;margin-top:4px}
 button.on{border-color:var(--accent);color:var(--accent)}
 button.go{background:var(--ok);color:#04130a;border-color:var(--ok)}
 button.stop{background:var(--bad);color:#1a0505;border-color:var(--bad)}
@@ -94,6 +95,8 @@ th{color:var(--dim);font:600 12px var(--sans);text-transform:uppercase}
 
 <!-- НАСТРОЙКА -->
 <section id="setup" hidden>
+  <a id="legendLink" class="btn" href="https://claude.ai/artifact/CdkozFX5cBBGxNoR8L7UYZ" target="_blank" rel="noopener">📷 Фото легенды → график (Claude)</a>
+  <p id="importNote" class="note" style="color:var(--warn)" hidden>График пришёл из разбора легенды. Сверьте с легендой и нажмите «Сохранить».</p>
   <label for="plan">График: одна строка — <b>км скорость [время]</b></label>
   <textarea id="plan" spellcheck="false"></textarea>
   <p class="note">С этого км легенды едем с этой средней скоростью. Время (чч:мм:сс) — жёсткая привязка: на этом км вы должны быть ровно в это время (старт участка, рестарт после КВ). В первой строке время обязательно. Скорость 0 — стоянка до следующей строки со временем.</p>
@@ -374,6 +377,21 @@ $("calEnd").onclick = () => {
   $("kFactor").value = state.k.toFixed(4); store.set("k", state.k);
   $("calInfo").textContent = `Готово: GPS ${(raw/1000).toFixed(3)} км, легенда ${(b-state.calKmA).toFixed(3)} км, k = ${state.k.toFixed(4)}`;
 };
+
+// график из разбора легенды приходит ссылкой …/#plan=<текст>; не сохраняем сами — экипаж сверяет
+if(location.hash.startsWith("#plan=")){
+  try{
+    $("plan").value = decodeURIComponent(location.hash.slice(6));
+    $("importNote").hidden = false; show("setup");
+  }catch{}
+  history.replaceState(null, "", location.pathname);
+}
+
+// график сохранили в другой вкладке Chrome (туда ведёт ссылка из разбора) — подхватываем в открытом приложении
+window.addEventListener("storage", e => {
+  if(e.key !== "tm_plan") return;
+  try{ const text = JSON.parse(e.newValue); state.rows = parsePlan(text); state.planText = text; $("plan").value = text; }catch{}
+});
 
 function buzz(p){ try{ navigator.vibrate && navigator.vibrate(p); }catch{} }
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
