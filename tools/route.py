@@ -15,6 +15,7 @@ sys.setrecursionlimit(50000)
 STRAIGHT = 40      # град: неупомянутый перекрёсток проезжаем, если дорога идёт почти прямо
 ANGLE_TOL = 50     # град: допуск угла выезда на пункте книги
 BEAM = 40
+RING_NODES = set()
 
 
 def hav(a, b):
@@ -60,7 +61,10 @@ def load_graph(path):
     out, und = {}, {}
     for w in (e for e in d["elements"] if e["type"] == "way"):
         nd = [n for n in w["nodes"] if n in pos]
-        ow = w.get("tags", {}).get("oneway")
+        tg = w.get("tags", {})
+        ow = tg.get("oneway")
+        if tg.get("junction") in ("roundabout", "circular"):
+            RING_NODES.update(nd); ow = "yes"     # кольцо одностороннее, даже если метки oneway нет
         for a, b in zip(nd, nd[1:]):
             und.setdefault(a, set()).add(b); und.setdefault(b, set()).add(a)
             if ow != "-1":
@@ -86,7 +90,11 @@ def walk(pos, out, und, prev, cur, dist, lo, hi, want_exit, path, found, depth=0
     nxt = [n for n in out.get(cur, ()) if n != prev]
     hin = bearing(pos[prev], pos[cur])
     is_junction = len(und.get(cur, ())) >= 3
-    if dist >= lo and (is_junction or abs(want_exit) < 15):
+    if want_exit is None:
+        if dist >= lo and cur in RING_NODES:
+            for n in nxt:
+                found.append((0.0, dist, prev, cur, n, path))
+    elif dist >= lo and (is_junction or abs(want_exit) < 15):
         for n in nxt:
             t = turn(hin, bearing(pos[cur], pos[n]))
             err = abs(turn(want_exit, t))
@@ -147,7 +155,8 @@ def expand(pos, out, und, states, p, d, tol):
         nxt_states = []
         for st in states:
             found = []
-            walk(pos, out, und, st["prev"], st["cur"], st["dist"], d - tol, d + tol, p["exit"], [], found)
+            want = None if "ring" in p["flags"] and RING_NODES else p["exit"]
+            walk(pos, out, und, st["prev"], st["cur"], st["dist"], d - tol, d + tol, want, [], found)
             for err, dist, prev, cur, n, path in found:
                 nxt_states.append({
                     "score": st["score"] + err / ANGLE_TOL + abs(dist - d) / tol,
