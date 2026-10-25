@@ -1,6 +1,6 @@
 // Офлайн: при первом открытии кладём всё в кэш, дальше отдаём из кэша,
 // а при наличии сети тихо обновляем. Меняйте VERSION при каждой правке файлов.
-const VERSION = "tm-v9";
+const VERSION = "tm-v10";
 const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png",
   "./legends/index.json", "./legends/kv0_kv1.txt", "./legends/kv1_kv2.txt"];
 

@@ -157,7 +157,7 @@ th{color:var(--dim);font:600 12px var(--sans);text-transform:uppercase}
     <p id="legErr" class="note err"></p>
     <div class="row"><button id="legSave" class="go">Сохранить легенду</button></div>
     <label for="legStart">Время старта участка (чч:мм:сс) — график из шапки</label>
-    <div class="row"><input id="legStart" placeholder="10:05:00"><button id="legPlan">Сделать график</button></div>
+    <div class="row"><input id="legStart" inputmode="numeric" placeholder="104700 = 10:47:00"><button id="legPlan">Сделать график</button></div>
   </details>
 </section>
 
@@ -177,7 +177,11 @@ const store = {
 
 /* ---------- время ---------- */
 function parseTime(s){
-  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?$/.exec(s.trim());
+  s = s.trim().replace(/[.,\-\s]/g, ":");
+  // 104700 → 10:47:00, 1047 → 10:47 — на цифровой клавиатуре телефона нет двоеточия
+  if(/^\d{6}$/.test(s)) s = `${s.slice(0,2)}:${s.slice(2,4)}:${s.slice(4)}`;
+  else if(/^\d{4}$/.test(s)) s = `${s.slice(0,2)}:${s.slice(2)}`;
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?$/.exec(s);
   if(!m) return null;
   return (+m[1])*3600 + (+m[2])*60 + (m[3] ? +m[3] : 0);
 }
@@ -474,7 +478,7 @@ $("legPlan").onclick = () => {
   const h = state.leg?.head, t = $("legStart").value.trim();
   if(!h || !isFinite(h.avg) || !isFinite(h.len)){ $("legErr").textContent = "В шапке легенды нет длины и средней скорости"; return; }
   if(parseTime(t) === null){ $("legErr").textContent = "Время старта в формате чч:мм:сс"; return; }
-  $("plan").value = `0.00 ${h.avg} ${t}   # ${h.title || "старт"}\n${h.len.toFixed(2)} 0   # финиш участка`;
+  $("plan").value = `0.00 ${h.avg} ${fmtTime(parseTime(t))}   # ${h.title || "старт"}\n${h.len.toFixed(2)} 0   # финиш участка`;
   $("legErr").textContent = ""; show("setup"); $("saveBtn").click();
 };
 $("tabRun").onclick = () => show("run");
