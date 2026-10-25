@@ -112,21 +112,25 @@ def solve(pos, out, und, start, pts):
         if hav(pos[s], start) > 150:
             continue
         for n in out.get(s, ()):
+            hb = os.environ.get("START_BEARING")   # известный курс со старта: отсекаем лишние направления
+            if hb and abs(turn(float(hb), bearing(pos[s], pos[n]))) > 60:
+                continue
             states.append({"score": hav(pos[s], start) / 50, "prev": s, "cur": n,
                            "dist": hav(pos[s], pos[n]), "path": [s, n], "marks": [(pts[0], s, 0.0, 0.0)]})
     for i in range(1, len(pts)):
         p, d = pts[i], (pts[i]["km"] - pts[i - 1]["km"]) * 1000
         tol = max(float(os.environ.get("TOL_M", 40)), float(os.environ.get("TOL_P", 0.07)) * d)
-        nxt_states = []
-        for st in states:
-            found = []
-            walk(pos, out, und, st["prev"], st["cur"], st["dist"], d - tol, d + tol, p["exit"], [], found)
-            for err, dist, prev, cur, n, path in found:
-                nxt_states.append({
-                    "score": st["score"] + err / ANGLE_TOL + abs(dist - d) / tol,
-                    "prev": cur, "cur": n, "dist": hav(pos[cur], pos[n]),
-                    "path": st["path"] + path + [n],
-                    "marks": st["marks"] + [(p, cur, dist - d, err)]})
+        global ANGLE_TOL
+        base_angle = ANGLE_TOL
+        for widen in (1.0, 2.5):           # не нашли строго — пробуем шире, но только для этого пункта
+            ANGLE_TOL = base_angle if widen == 1 else 75
+            t2 = tol * widen
+            nxt_states = expand(pos, out, und, states, p, d, t2)
+            if nxt_states:
+                break
+        ANGLE_TOL = base_angle
+        if widen > 1 and nxt_states:
+            print(f"  п.{p['n']}: найден только с расширенным допуском")
         if not nxt_states:
             return states, i            # дальше пункт i не нашёлся
         nxt_states.sort(key=lambda s: s["score"])
@@ -137,6 +141,20 @@ def solve(pos, out, und, start, pts):
                 seen.add(k); uniq.append(s)
         states = uniq[:BEAM]
     return states, len(pts)
+
+
+def expand(pos, out, und, states, p, d, tol):
+        nxt_states = []
+        for st in states:
+            found = []
+            walk(pos, out, und, st["prev"], st["cur"], st["dist"], d - tol, d + tol, p["exit"], [], found)
+            for err, dist, prev, cur, n, path in found:
+                nxt_states.append({
+                    "score": st["score"] + err / ANGLE_TOL + abs(dist - d) / tol,
+                    "prev": cur, "cur": n, "dist": hav(pos[cur], pos[n]),
+                    "path": st["path"] + path + [n],
+                    "marks": st["marks"] + [(p, cur, dist - d, err)]})
+        return nxt_states
 
 
 def main():
