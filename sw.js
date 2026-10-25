@@ -1,7 +1,8 @@
 // Офлайн: при первом открытии кладём всё в кэш, дальше отдаём из кэша,
 // а при наличии сети тихо обновляем. Меняйте VERSION при каждой правке файлов.
-const VERSION = "tm-v8";
-const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
+const VERSION = "tm-v9";
+const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png",
+  "./legends/index.json", "./legends/kv0_kv1.txt", "./legends/kv1_kv2.txt"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

@@ -146,6 +146,7 @@ th{color:var(--dim);font:600 12px var(--sans);text-transform:uppercase}
 
 <!-- ЛЕГЕНДА -->
 <section id="legend" hidden>
+  <div id="presets" class="row"></div>
   <div id="legHead" class="legHead"></div>
   <div id="legList"></div>
   <p id="legEmpty" class="note">Легенда не загружена. Пришлите фото дорожной книги в чат с Claude — придёт ссылка, которая загрузит её сюда. Или введите вручную ниже.</p>
@@ -594,6 +595,22 @@ window.addEventListener("storage", e => {
   if(e.key !== "tm_plan") return;
   try{ const text = JSON.parse(e.newValue); state.rows = parsePlan(text); state.planText = text; $("plan").value = text; }catch{}
 });
+
+// готовые легенды гонки лежат рядом с приложением: кнопка вместо длинной ссылки
+fetch("legends/index.json").then(r => r.json()).then(list => {
+  $("presets").replaceChildren(...list.map(L => {
+    const b = document.createElement("button");
+    b.textContent = "Загрузить " + L.title;
+    b.onclick = async () => {
+      try{
+        const txt = await (await fetch(`legends/${L.id}.txt`)).text();
+        $("legText").value = txt; $("legSave").click(); show("legend");
+        b.textContent = "Загружено: " + L.title;
+      }catch{ b.textContent = "Нет сети — откройте с интернетом"; }
+    };
+    return b;
+  }));
+}).catch(() => {});
 
 function buzz(p){ try{ navigator.vibrate && navigator.vibrate(p); }catch{} }
 if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
