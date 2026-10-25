@@ -62,7 +62,7 @@ th{color:var(--dim);font:600 12px var(--sans);text-transform:uppercase}
 .pt .txt{font-size:15px;line-height:1.3;min-width:0}
 .pt .info{font-size:13px;color:var(--warn);margin-top:2px}
 .pt svg{width:84px;height:84px;display:block}
-.ptNext{display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:center;margin-top:8px;background:var(--panel);border:2px solid var(--accent);border-radius:12px;padding:6px 10px}
+.ptNext{cursor:pointer;display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:center;margin-top:8px;background:var(--panel);border:2px solid var(--accent);border-radius:12px;padding:6px 10px}
 .ptNext svg{width:92px;height:92px;display:block}
 .ptNext .dist{font:700 34px var(--mono);font-variant-numeric:tabular-nums}
 .ptNext .txt{font-size:16px;line-height:1.3}
@@ -426,6 +426,13 @@ function updatePoints(km){
   $("ptNextDist").textContent = m <= 20 ? "сейчас" : fmtDist(m);
   if(!state.ptWarned && m < 100){ state.ptWarned = true; buzz([80]); }
 }
+// нажали на карточку следующего пункта, проезжая его — ставим км ровно по книге
+$("ptNext").addEventListener("click", () => {
+  if(!state.leg || state.ptIdx < 0) return;
+  const p = state.leg.pts[state.ptIdx];
+  syncTo(p.km); store.set("pos", {km: p.km}); buzz([40]);
+  $("status").textContent = `синхронизировано: п.${p.n}, км ${p.km.toFixed(2)}`;
+});
 function renderLegend(){
   const L = state.leg;
   $("legEmpty").hidden = !!(L && L.pts.length);

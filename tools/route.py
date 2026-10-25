@@ -10,6 +10,7 @@ roads.json — выгрузка Overpass (way[highway] + узлы) вокруг 
 на нужном расстоянии и выезд под нужным углом. Держим лучших BEAM вариантов.
 """
 import json, math, sys, os, html
+sys.setrecursionlimit(50000)
 
 STRAIGHT = 40      # град: неупомянутый перекрёсток проезжаем, если дорога идёт почти прямо
 ANGLE_TOL = 50     # град: допуск угла выезда на пункте книги
@@ -74,10 +75,14 @@ def head_of(pos, a, b, back=False):
     return bearing(pos[a], pos[b])
 
 
-def walk(pos, out, und, prev, cur, dist, lo, hi, want_exit, path, found, depth=0):
+def walk(pos, out, und, prev, cur, dist, lo, hi, want_exit, path, found, depth=0, seen=None):
     """Ехать от cur (въехали из prev), пока dist <= hi; на подходящих узлах в окне [lo, hi] записать кандидатов."""
     if dist > hi or depth > 4000:
         return
+    seen = {} if seen is None else seen
+    if seen.get((prev, cur), 1e18) <= dist:   # сюда уже приезжали не длиннее — дальше то же самое
+        return
+    seen[(prev, cur)] = dist
     nxt = [n for n in out.get(cur, ()) if n != prev]
     hin = bearing(pos[prev], pos[cur])
     is_junction = len(und.get(cur, ())) >= 3
@@ -91,12 +96,12 @@ def walk(pos, out, und, prev, cur, dist, lo, hi, want_exit, path, found, depth=0
         return
     if is_junction:
         opts = [n for n in nxt if abs(turn(hin, bearing(pos[cur], pos[n]))) < STRAIGHT]
-        if not opts and len(nxt) == 1:
-            opts = nxt                     # дорога просто изгибается
+        if not opts and (len(nxt) == 1 or os.environ.get("LOOSE")):
+            opts = nxt                     # дорога изгибается; LOOSE — на парковках «прямо» нет, пробуем все
     else:
         opts = nxt
-    for n in opts[:2]:
-        walk(pos, out, und, cur, n, dist + hav(pos[cur], pos[n]), lo, hi, want_exit, path + [n], found, depth + 1)
+    for n in (opts if os.environ.get("LOOSE") else opts[:2]):
+        walk(pos, out, und, cur, n, dist + hav(pos[cur], pos[n]), lo, hi, want_exit, path + [n], found, depth + 1, seen)
 
 
 def solve(pos, out, und, start, pts):
@@ -111,7 +116,7 @@ def solve(pos, out, und, start, pts):
                            "dist": hav(pos[s], pos[n]), "path": [s, n], "marks": [(pts[0], s, 0.0, 0.0)]})
     for i in range(1, len(pts)):
         p, d = pts[i], (pts[i]["km"] - pts[i - 1]["km"]) * 1000
-        tol = max(40.0, 0.07 * d)
+        tol = max(float(os.environ.get("TOL_M", 40)), float(os.environ.get("TOL_P", 0.07)) * d)
         nxt_states = []
         for st in states:
             found = []

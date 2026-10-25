@@ -1,6 +1,6 @@
 // Офлайн: при первом открытии кладём всё в кэш, дальше отдаём из кэша,
 // а при наличии сети тихо обновляем. Меняйте VERSION при каждой правке файлов.
-const VERSION = "tm-v7";
+const VERSION = "tm-v8";
 const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
